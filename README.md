@@ -4,6 +4,8 @@ Investigating the relationship between gender and overdue debt
 
 # Authors: Harini Mittal, Ephraiam Chang, Yiwen Liao
 
+# Technology used: Python
+
 Are female credit-card customers defaulters?                                                        Group 8
 Historically, the financial landscape was characterized by gender-based discrimination, with women facing significant hurdles in obtaining credit. We used data mining techniques to inquire if female customers of credit cards are more likely to have overdue or bad debts.
 Main Findings:
