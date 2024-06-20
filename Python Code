@@ -1,0 +1,379 @@
+
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
+import statsmodels.api as sm
+import statsmodels.stats.api as sms   ## no need to install package
+from statsmodels.compat import lzip   ## no need to install package
+import scipy.stats as scipy    ## search the package "scipy"
+from scipy.stats import shapiro   ## no need to install package
+from scipy.stats import zscore
+from sklearn.tree import plot_tree
+import warnings
+import sys   ## no need to install package
+import os   ## no need to install package
+warnings.simplefilter('ignore')
+from google.colab import drive
+drive.mount('/content/drive')
+
+np.random.seed(42)
+df1=pd.read_csv('/content/drive/MyDrive/CIS9660/application_record.csv')
+#df1=pd.read_csv('/content/drive/MyDrive/application_record.csv')
+df2=pd.read_csv('/content/drive/MyDrive/CIS9660/credit_record.csv')
+#df2=pd.read_csv('/content/drive/MyDrive/credit_record.csv')
+
+#file = open('project_output.txt','wt')
+#sys.stdout = file
+## Open a text file and save all results into the text file
+
+#print(df1.info())
+#print(df1.nunique())
+
+#When comparing total values to unique values, we see that there are 47 ID's that are not unique in the application_record dataframe. Lets drop those.
+df1 = df1.drop_duplicates(subset = 'ID', keep = False)
+df1.info()
+
+"""Now we still have over 430,000 unique IDs in df_application_record. The application_record dataset containts more IDs than the credit_record dataset however, so we want to edit the dataframes to allow us to only look at unique IDs that are consistent between both datasets"""
+
+#show how many unique IDs we will be able to work with in the dataframes
+print("# of unique IDs that are consistent between both datasets", df1[df1['ID'].isin(df2['ID'])]['ID'].nunique())
+#adjust the dataframes so that we only work with the consistent IDs
+df1 = df1[df1['ID'].isin(df2['ID'])]
+df2 = df2[df2['ID'].isin(df1['ID'])]
+print("New # of IDs in application_record", df1['ID'].nunique())
+print("New # of IDs in credit_record", df2['ID'].nunique())
+#merge df1 and df2
+joined_df = pd.merge(df1, df2, on='ID', how='inner')
+#Ephraim Merge
+#df_unique = df1.drop_duplicates(subset= ['CODE_GENDER','FLAG_OWN_CAR','FLAG_OWN_REALTY','CNT_CHILDREN','AMT_INCOME_TOTAL','NAME_INCOME_TYPE','NAME_EDUCATION_TYPE','NAME_FAMILY_STATUS','NAME_HOUSING_TYPE','DAYS_BIRTH','DAYS_EMPLOYED','FLAG_MOBIL','FLAG_WORK_PHONE','FLAG_PHONE','FLAG_EMAIL','OCCUPATION_TYPE','CNT_FAM_MEMBERS'], keep='first')
+#joined_df = pd.merge(df_unique, df2, on="ID", how="inner")
+#print(joined_df.columns)
+#joined_df = joined_df.drop(['OCCUPATION_TYPE'],axis=1)
+#joined_df = joined_df[joined_df['MONTHS_BALANCE'] == 0]
+
+# Display the first few rows of the merged DataFrame
+print(joined_df.head())
+
+# Save the merged DataFrame to a new CSV file
+joined_df.to_csv('/content/drive/MyDrive/merged_file.csv', index=False)
+#When comparing total values to unique values, we see that there are 47 ID's that are not unique in the application_record dataframe. Lets drop those.
+
+#We can see that occupation type has null values
+#Some have missing occupation type data#
+
+#lets see what the income types for those with no occupation are and try to set those as their occupation if possible
+# Set the figure size
+plt.figure(figsize=(10,10))
+sns.countplot(x= joined_df[joined_df["OCCUPATION_TYPE"].isna()]["NAME_INCOME_TYPE"])
+plt.title("Income types for those with no stated occupation")
+plt.show()
+
+
+# Display unique values in 'OCCUPATION_TYPE'
+print(joined_df['OCCUPATION_TYPE'].unique())
+
+# Replace certain values in the DataFrame
+joined_df = joined_df.replace({'Y': 1, 'N': 0, 'M': 0, 'F': 1, 'C': 6, 'X': 7})
+
+# Count non-null values in each column
+print(joined_df.count())
+
+# Display unique values in 'STATUS'
+print(joined_df['STATUS'].unique())
+
+# Convert 'STATUS' to int64
+joined_df['STATUS'] = joined_df['STATUS'].astype(np.int64)
+
+#convert status into binary categorical variable replacing 0 to 5 with 0 and 6 and 7 with 1
+joined_df['STATUS'] = joined_df['STATUS'].replace([0,1, 2, 3, 4, 5], 0).replace([6, 7], 1)
+# Display data types of each column
+print(joined_df.dtypes)
+
+# Display basic statistics
+print(joined_df.describe())
+
+# Select numeric columns
+exclude_columns = ["ID","FLAG_PHONE", "FLAG_EMAIL", "FLAG_MOBIL", "FLAG_WORK_PHONE"]
+numeric_columns = joined_df.select_dtypes(include=['float64', 'int64']).columns
+numeric_columns = [column for column in numeric_columns if column not in exclude_columns]
+
+# Set the figure size for box plots
+fig_box, axes_box = plt.subplots(2, 5, figsize=(18, 8), sharey=True)
+fig_box.suptitle("Box Plots of Numeric Columns", y=1.02)  # Title for the entire figure
+axes_box = axes_box.flatten()
+
+# Set the figure size for histograms
+fig_hist, axes_hist = plt.subplots(2, 2, figsize=(12, 8))
+axes_hist = axes_hist.flatten()
+
+# Create box plots for selected numeric columns
+for i, column in enumerate(numeric_columns):
+    # Box plot
+    sns.boxplot(x=joined_df[column], ax=axes_box[i])
+    axes_box[i].set_title(f'{column}', fontsize=8)  # Adjust font size for title
+
+# Create histograms for columns with outliers
+subplot_count = 0
+for i, column in enumerate(numeric_columns):
+    # Check for outliers
+    q1 = joined_df[column].quantile(0.25)
+    q3 = joined_df[column].quantile(0.75)
+    iqr = q3 - q1
+    lower_bound = q1 - 1.5 * iqr
+    upper_bound = q3 + 1.5 * iqr
+
+    # Create histogram only if there are outliers
+    if any((joined_df[column] < lower_bound) | (joined_df[column] > upper_bound)):
+        # Histogram
+        counts, edges, _ = axes_hist[subplot_count].hist(joined_df[column], bins=30, color='skyblue', edgecolor='black')
+        axes_hist[subplot_count].set_title(f'Histogram of {column}')
+
+        # Add data labels to the histogram bars
+        for count, edge in zip(counts, edges):
+            axes_hist[subplot_count].text(edge + 0.5, count, str(int(count)), ha='center', va='bottom')
+
+        subplot_count += 1
+
+# Adjust layout for box plots
+plt.tight_layout()
+
+# Adjust layout for histograms
+plt.tight_layout()
+
+# Show the plots
+plt.show()
+
+# Show the plots
+plt.show()
+# Extract the numeric columns from the DataFrame
+numeric_data = joined_df[numeric_columns]
+# Calculate Z-scores for numeric columns
+z_scores = zscore(numeric_data)
+
+# Set a threshold for Z-scores to identify outliers (e.g., |Z-score| > 3)
+outlier_threshold = 3
+outliers = (abs(z_scores) > outlier_threshold).any(axis=1)
+
+# Create a dataset without outliers
+df_no_outliers = numeric_data[~outliers]
+
+#Remove rows with missing values
+df_no_outliers = df_no_outliers.dropna()
+
+#Select only numeric columns
+numeric_columns = df_no_outliers.select_dtypes(include=['float64', 'int64']).columns
+df_no_outliers = df_no_outliers[numeric_columns]
+
+
+# Calculate the correlation matrix
+correlation_matrix = df_no_outliers.corr()
+
+# Set up the matplotlib figure
+plt.figure(figsize=(12, 10))
+
+# Create a heatmap using Seaborn
+sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', linewidths=0.5)
+
+# Set the title of the heatmap
+plt.title('Correlation Heatmap for Numeric Columns')
+
+# Show the plot
+plt.show()
+
+df_no_outliers.corrwith(joined_df['STATUS']).sort_values()
+
+# Select columns for conversion to dummy variables
+categorical_columns = ['NAME_INCOME_TYPE', 'NAME_EDUCATION_TYPE', 'NAME_FAMILY_STATUS', 'NAME_HOUSING_TYPE']
+#categorical_columns = ['NAME_INCOME_TYPE', 'NAME_EDUCATION_TYPE', 'NAME_FAMILY_STATUS', 'NAME_HOUSING_TYPE']
+# Create dummy variables for categorical columns in the subset without outliers
+dummy_variables_subset = pd.get_dummies(joined_df.loc[~outliers, categorical_columns],drop_first= True, prefix=categorical_columns)
+#dummy_variables_subset = pd.get_dummies(joined_df.loc[:, categorical_columns],drop_first= True, prefix=categorical_columns)
+
+
+df_numeric = joined_df[['ID']  + list(numeric_columns)]
+
+
+# Join the two DataFrames
+numeric_data_with_dummies = pd.concat([df_numeric, dummy_variables_subset], axis=1)
+#remove rows with any missing values
+numeric_data_with_dummies = numeric_data_with_dummies.dropna()
+
+# Convert non-float64 columns to either float64 or int64
+for column in numeric_data_with_dummies.columns:
+    if numeric_data_with_dummies[column].dtype != 'float64':
+        numeric_data_with_dummies[column] = numeric_data_with_dummies[column].astype('int64')
+
+# Display the resulting DataFrame
+
+numeric_data_with_dummies.info()
+
+
+
+# Exclude 'ID' column from numeric_data_with_dummies
+dummies_data_without_id = numeric_data_with_dummies.drop('ID', axis=1)
+
+#Calculate the correlation matrix for the numeric_data_with_dummies(excluding 'ID')
+correlation_matrix_with_dummies = dummies_data_without_id.corr()
+# Display more rows and columns in the output
+pd.set_option('display.max_rows', None)
+pd.set_option('display.max_columns', None)
+
+
+# Display the correlation matrix for data with dummies
+print("\nCorrelation Matrix for Data with dummies (excluding 'ID'):")
+print(correlation_matrix_with_dummies)
+
+# Separate features (X1) and target variable (y1)
+X1 = numeric_data_with_dummies[['CODE_GENDER']]
+y1 = numeric_data_with_dummies['STATUS']
+
+# Add a constant term to the predictor variable
+X1 = sm.add_constant(X1)
+# Split the data into training and testing sets
+X1_train, X1_test, y1_train, y1_test = train_test_split(X1, y1, test_size=0.3, random_state=42)
+
+# Fit the logistic regression model on the training data
+model1 = sm.Logit(y1_train, X1_train)
+result1 = model1.fit()
+
+# Make predictions on the testing data
+y1_pred = result1.predict(X1_test)
+
+# Convert predicted probabilities to binary predictions (0 or 1)
+y1_pred_binary = (y1_pred > 0.5).astype(int)
+
+# Evaluate the model
+accuracy1 = accuracy_score(y1_test, y1_pred_binary)
+conf_matrix1 = confusion_matrix(y1_test, y1_pred_binary)
+classification_rep1 = classification_report(y1_test, y1_pred_binary)
+
+# Display the summary of the first model
+print("\nLogistic Regression Model 1 Summary:")
+print(result1.summary())
+
+# Display the evaluation metrics
+print('\nModel 1 Evaluation Metrics:')
+print(f'Accuracy: {accuracy1}')
+print('Confusion Matrix:')
+print(conf_matrix1)
+print('Classification Report:')
+print(classification_rep1)
+# Function to normalize confusion matrix values to percentages
+def normalize_cm(cm):
+    cm_percentage = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]  # Normalize along the true class (axis=1)
+    return cm_percentage
+
+# Normalize confusion matrix for Model 1
+cm1_percentage = normalize_cm(conf_matrix1)
+
+# Plot confusion matrix for Model 1
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm1_percentage, annot=True, fmt=".2%", cmap='Blues', annot_kws={"size": 14})
+plt.title('Confusion Matrix for Model 1 (Percentage)', fontsize=16)
+plt.xlabel('Predicted', fontsize=14)
+plt.ylabel('Actual', fontsize=14)
+plt.show()
+# Separate features (X2) and target variable (y2)
+X2 = numeric_data_with_dummies.drop(columns=['STATUS', 'ID'])
+y2 = numeric_data_with_dummies['STATUS']
+
+# Add a constant term to the predictor variable
+X2 = sm.add_constant(X2)
+
+# Split the data into training and testing sets
+X2_train, X2_test, y2_train, y2_test = train_test_split(X2, y2, test_size=0.3, random_state=42)
+
+# Fit the logistic regression model on the training data
+model2 = sm.Logit(y2_train, X2_train)
+result2 = model2.fit()
+
+# Make predictions on the testing data
+y2_pred = result2.predict(X2_test)
+
+# Convert predicted probabilities to binary predictions (0 or 1)
+y2_pred_binary = (y2_pred > 0.5).astype(int)
+
+# Evaluate the model
+accuracy2 = accuracy_score(y2_test, y2_pred_binary)
+conf_matrix2 = confusion_matrix(y2_test, y2_pred_binary)
+classification_rep2 = classification_report(y2_test, y2_pred_binary)
+
+# Display the summary of the second model
+print("\nLogistic Regression Model 2 Summary:")
+print(result2.summary())
+
+# Display the evaluation metrics
+print('\nModel 2 Evaluation Metrics:')
+print(f'Accuracy: {accuracy2}')
+print('Confusion Matrix:')
+print(conf_matrix2)
+print('Classification Report:')
+print(classification_rep2)
+
+# Normalize confusion matrix for Model 2
+cm2_percentage = normalize_cm(conf_matrix2)
+
+# Plot confusion matrix for Model 2
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm2_percentage, annot=True, fmt=".2%", cmap='Blues', annot_kws={"size": 14})
+plt.title('Confusion Matrix for Model 2 (Percentage)', fontsize=16)
+plt.xlabel('Predicted', fontsize=14)
+plt.ylabel('Actual', fontsize=14)
+plt.show()
+
+from sklearn.model_selection import GridSearchCV
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+
+
+#Decision Tree
+# Set the seed for reproducibility
+np.random.seed(42)
+
+# Define the fraction of the dataset to use for sampling
+sample_fraction = 0.01
+
+# Sample the dataset
+X2_sample = X2.sample(frac=sample_fraction, random_state=42)
+y2_sample = y2.loc[X2_sample.index]
+
+# Decision Tree
+dt_params = {'criterion': ['gini', 'entropy'], 'max_depth': [5, 10, 15], 'min_samples_split': [2, 5, 10]}
+dt_grid = GridSearchCV(DecisionTreeClassifier(), dt_params, cv=5)
+dt_grid.fit(X2_sample, y2_sample)
+best_dt = dt_grid.best_estimator_
+
+# Visualize the Decision Tree
+plt.figure(figsize=(40, 20))
+plot_tree(best_dt, feature_names=X2.columns, filled=True, class_names=['0', '1'], rounded=True, fontsize=15)
+plt.show()
+
+
+# Assess the best models
+y_pred_dt = best_dt.predict(X2_test)
+accuracy_dt = accuracy_score(y2_test, y_pred_dt)
+
+print(f"Decision Tree Accuracy: {accuracy_dt:.2f}")
+#%%
+# Calculate the correlation matrix
+correlation_matrix = df_no_outliers.corr()
+
+# Set up the matplotlib figure
+plt.figure(figsize=(12, 10))
+
+# Create a heatmap using Seaborn
+sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', linewidths=0.5)
+
+# Set the title of the heatmap
+plt.title('Correlation Heatmap for Numeric Columns')
+
+# Show the plot
+plt.show()
+
+df_no_outliers.corrwith(joined_df['STATUS']).sort_values()
+#%%
